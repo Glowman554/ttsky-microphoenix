@@ -20,15 +20,21 @@ module tb ();
   reg [7:0] ui_in;
   reg [7:0] uio_in;
   wire [7:0] uo_out;
+  wire uart_tx = uo_out[0];
   wire [7:0] uio_out;
   wire [7:0] uio_oe;
+  wire flash_cs_n = uio_out[0];
+  wire spi_mosi = uio_out[1];
+  wire spi_sclk = uio_out[3];
+  wire ram_a_cs_n = uio_out[6];
+  wire ram_b_cs_n = uio_out[7];
 `ifdef GL_TEST
   wire VPWR = 1'b1;
   wire VGND = 1'b0;
 `endif
 
   // Replace tt_um_example with your module name:
-  tt_um_example user_project (
+  tt_um_toxicfox_microphoenix user_project (
 
       // Include power ports for the Gate Level test:
 `ifdef GL_TEST
