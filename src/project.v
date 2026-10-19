@@ -1,3 +1,90 @@
+module RiscVSoc #(
+    parameter MEM_WORDS = 2048,
+    parameter MEM_INIT_FILE = "firmware.hex",
+    parameter GPIO_WIDTH = 8
+) (
+    input clk,
+    input reset,
+
+    input [GPIO_WIDTH-1:0] gpio_in,
+    output [GPIO_WIDTH-1:0] gpio_out,
+    output [GPIO_WIDTH-1:0] gpio_oe,
+
+    output tx_pin,
+    input rx_pin
+);
+    wire [31:0] mem_addr;
+    wire mem_read;
+    wire mem_write;
+    wire [3:0] mem_wmask;
+    wire [31:0] mem_wdata;
+    wire [31:0] mem_rdata;
+    
+    wire [31:0] ram_rdata;
+    wire [31:0] gpio_rdata;
+    wire [31:0] uart_rdata;
+
+    wire ram_select = mem_addr < MEM_WORDS*4;
+
+    reg [31:0] mmio_rdata_reg;
+    always @(posedge clk) begin
+        mmio_rdata_reg <= gpio_rdata | uart_rdata;
+    end
+
+    assign mem_rdata = ram_select ? ram_rdata : mmio_rdata_reg;
+
+    RiscV core (
+        .clk(clk),
+        .reset(reset),
+        .mem_addr(mem_addr),
+        .mem_read(mem_read),
+        .mem_write(mem_write),
+        .mem_wmask(mem_wmask),
+        .mem_wdata(mem_wdata),
+        .mem_rdata(mem_rdata),
+        .mem_ready(1'b1)
+    );
+
+    Sram #(.MEM_WORDS(MEM_WORDS), .MEM_INIT_FILE(MEM_INIT_FILE)) ram (
+        .clk(clk),
+        .address(mem_addr),
+        .read_enable(mem_read && ram_select),
+        .read_data(ram_rdata),
+        .write_enable(mem_write && ram_select),
+        .write_data(mem_wdata),
+        .write_mask(mem_wmask)
+    );
+
+    Gpio #(.WIDTH(GPIO_WIDTH)) gpio (
+        .clk(clk),
+        .reset(reset),
+        .address(mem_addr),
+        .write_data(mem_wdata),
+        .write_mask(mem_wmask),
+        .write_enable(mem_write && !ram_select),
+        .pins_in(gpio_in),
+        .pins_in_sync(),
+        .pins_out(gpio_out),
+        .pins_oe(gpio_oe),
+        .read_data(gpio_rdata)
+    );
+
+    Uart uart (
+        .clk(clk),
+        .reset(reset),
+        .address(mem_addr),
+        .write_data(mem_wdata),
+        .write_mask(mem_wmask),
+        .write_enable(mem_write && !ram_select),
+        .read_commit(mem_read && !ram_select),
+        .rx(rx_pin),
+        .tx(tx_pin),
+        .rx_valid(),
+        .read_data(uart_rdata)
+    );
+
+endmodule
+
 `default_nettype none
 
 module tt_um_toxicfox_microphoenix (
@@ -99,93 +186,6 @@ endmodule
 
 `default_nettype wire
 
-module RiscVSoc #(
-    parameter MEM_WORDS = 2048,
-    parameter MEM_INIT_FILE = "firmware.hex",
-    parameter GPIO_WIDTH = 8
-) (
-    input clk,
-    input reset,
-
-    input [GPIO_WIDTH-1:0] gpio_in,
-    output [GPIO_WIDTH-1:0] gpio_out,
-    output [GPIO_WIDTH-1:0] gpio_oe,
-
-    output tx_pin,
-    input rx_pin
-);
-    wire [31:0] mem_addr;
-    wire mem_read;
-    wire mem_write;
-    wire [3:0] mem_wmask;
-    wire [31:0] mem_wdata;
-    wire [31:0] mem_rdata;
-    
-    wire [31:0] ram_rdata;
-    wire [31:0] gpio_rdata;
-    wire [31:0] uart_rdata;
-
-    wire ram_select = mem_addr < MEM_WORDS*4;
-
-    reg [31:0] mmio_rdata_reg;
-    always @(posedge clk) begin
-        mmio_rdata_reg <= gpio_rdata | uart_rdata;
-    end
-
-    assign mem_rdata = ram_select ? ram_rdata : mmio_rdata_reg;
-
-    RiscV core (
-        .clk(clk),
-        .reset(reset),
-        .mem_addr(mem_addr),
-        .mem_read(mem_read),
-        .mem_write(mem_write),
-        .mem_wmask(mem_wmask),
-        .mem_wdata(mem_wdata),
-        .mem_rdata(mem_rdata),
-        .mem_ready(1'b1)
-    );
-
-    Sram #(.MEM_WORDS(MEM_WORDS), .MEM_INIT_FILE(MEM_INIT_FILE)) ram (
-        .clk(clk),
-        .address(mem_addr),
-        .read_enable(mem_read && ram_select),
-        .read_data(ram_rdata),
-        .write_enable(mem_write && ram_select),
-        .write_data(mem_wdata),
-        .write_mask(mem_wmask)
-    );
-
-    Gpio #(.WIDTH(GPIO_WIDTH)) gpio (
-        .clk(clk),
-        .reset(reset),
-        .address(mem_addr),
-        .write_data(mem_wdata),
-        .write_mask(mem_wmask),
-        .write_enable(mem_write && !ram_select),
-        .pins_in(gpio_in),
-        .pins_in_sync(),
-        .pins_out(gpio_out),
-        .pins_oe(gpio_oe),
-        .read_data(gpio_rdata)
-    );
-
-    Uart uart (
-        .clk(clk),
-        .reset(reset),
-        .address(mem_addr),
-        .write_data(mem_wdata),
-        .write_mask(mem_wmask),
-        .write_enable(mem_write && !ram_select),
-        .read_commit(mem_read && !ram_select),
-        .rx(rx_pin),
-        .tx(tx_pin),
-        .rx_valid(),
-        .read_data(uart_rdata)
-    );
-
-endmodule
-
 module Alu (
     input clk,
     input reset,
@@ -261,7 +261,7 @@ module RiscV #(
     output reg mem_read,
     output reg mem_write,
     output reg [3:0] mem_wmask,
-    output reg [31:0] mem_wdata,
+    output wire [31:0] mem_wdata,
     input [31:0] mem_rdata,
     input mem_ready
 );
@@ -340,9 +340,9 @@ module RiscV #(
     end
 
     reg [4:0] rf_addr;
-    reg [4:0] rf_a3;
-    reg rf_we;
-    reg [31:0] rf_wd;
+    wire [4:0] rf_a3 = rd;
+    wire rf_we = (state == S_WRITEBACK) && reg_writes_rd;
+    wire [31:0] rf_wd;
     wire [31:0] rf_rd;
 
     RegisterFile register_file (
@@ -354,11 +354,11 @@ module RiscV #(
         .rd(rf_rd)
     );
 
-    reg [31:0] rs1_data, rs2_data;
+    reg [31:0] rs1_data;
 
     wire alu_subtract_a = (is_rtype && funct3 == 3'b000 && funct7b5) || is_slt || is_branch;
     wire [31:0] alu_a_operand = is_auipc ? PC : rs1_data;
-    wire [31:0] alu_b_operand = (is_rtype || is_branch) ? rs2_data : imm;
+    wire [31:0] alu_b_operand = (is_rtype || is_branch) ? rf_rd : imm;
 
     reg [1:0] pass_sel;
     wire [31:0] shared_a = (pass_sel == PASS_A) ? alu_a_operand : PC;
@@ -405,7 +405,7 @@ module RiscV #(
         .right(funct3 == 3'b101),
         .arith(funct7b5),
         .operand(rs1_data),
-        .shamt(is_itype ? shamt : rs2_data[4:0]),
+        .shamt(is_itype ? shamt : rf_rd[4:0]),
         .result(shift_result),
         .done(shift_done)
     );
@@ -417,16 +417,13 @@ module RiscV #(
 
     MulDiv muldiv (
         .clk(clk), .reset(reset), .start(muldiv_start),
-        .funct3(funct3), .a(rs1_data), .b(rs2_data),
+        .funct3(funct3), .a(rs1_data), .b(rf_rd),
         .result(muldiv_result), .done(muldiv_done)
     );
 `endif
 
     reg [31:0] pass_a_reg;
-    reg slt_result_reg;
-    reg branch_taken_reg;
     reg [31:0] pc_plus4_reg;
-    reg [31:0] pc_plus_imm_reg;
 
     wire [31:0] pass_a_result = is_shift ? shift_result : pass_a_reg;
 
@@ -444,22 +441,31 @@ module RiscV #(
     end
 
     wire need_pass_a = (is_rtype || is_itype || is_load || is_store || is_branch || is_jalr || is_auipc) && (!is_mext || mext_enabled);
-    wire need_pass_c = is_jal || (is_branch && branch_taken_reg);
+    wire need_pass_c = is_jal || (is_branch && pass_a_reg[0]);
 
-    reg [31:0] mem_addr_reg;
     wire [3:0] store_mask;
     wire [31:0] store_data;
     wire [31:0] load_data;
 
+    assign rf_wd =
+    `ifdef CORE_EXTENSION_M
+        is_mext ? pass_a_reg :
+    `endif
+        is_shift ? shift_result :
+        is_load ? load_data :
+        is_lui ? imm :
+        (is_jal || is_jalr) ? pc_plus4_reg : pass_a_reg;
+
     MaskUnit mask_unit (
         .funct3(funct3),
-        .DataAddr(mem_addr_reg),
+        .DataAddr(mem_addr),
         .WriteMask(store_mask),
         .ReadData(mem_rdata),
         .MaskedReadData(load_data)
     );
     
-    assign store_data = rs2_data << {pass_a_result[1:0], 3'b000};
+    assign store_data = rf_rd << {pass_a_result[1:0], 3'b000};
+    assign mem_wdata = store_data;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -472,14 +478,12 @@ module RiscV #(
         `ifdef CORE_EXTENSION_M
             muldiv_start <= 1'b0;
         `endif
-            rf_we <= 1'b0;
         end else begin
             alu_start <= 1'b0;
             shift_start <= 1'b0;
         `ifdef CORE_EXTENSION_M
             muldiv_start <= 1'b0;
         `endif
-            rf_we <= 1'b0;
             mem_read <= 1'b0;
             mem_write <= 1'b0;
 
@@ -559,7 +563,6 @@ module RiscV #(
                 end
 
                 S_REG2: begin
-                    rs2_data <= rf_rd;
                     if (need_pass_a) begin
                     `ifdef CORE_EXTENSION_M
                         if (is_mext) begin
@@ -583,13 +586,14 @@ module RiscV #(
                 S_EXEC_A: begin
                 `ifdef CORE_EXTENSION_M
                     if (is_mext ? muldiv_done : (is_shift ? shift_done : alu_done)) begin
-                        pass_a_reg <= is_mext ? muldiv_result : alu_result;
+                        pass_a_reg <= is_mext ? muldiv_result :
+                            (is_branch ? {31'd0, branch_taken} :
+                            (is_slt ? {31'd0, (funct3 == 3'b010 ? alu_lt : alu_ltu)} : alu_result));
                 `else
                     if (is_shift ? shift_done : alu_done) begin
-                        pass_a_reg <= alu_result;
+                        pass_a_reg <= is_branch ? {31'd0, branch_taken} : (is_slt ?
+                            {31'd0, (funct3 == 3'b010 ? alu_lt : alu_ltu)} : alu_result);
                 `endif
-                        slt_result_reg <= (funct3 == 3'b010) ? alu_lt : alu_ltu;
-                        branch_taken_reg <= branch_taken;
 
                         pass_sel <= PASS_B;
                         alu_start <= 1'b1;
@@ -612,21 +616,18 @@ module RiscV #(
 
                 S_EXEC_C: begin
                     if (alu_done) begin
-                        pc_plus_imm_reg <= alu_result;
+                        PC <= alu_result;
                         state <= S_MEM;
                     end
                 end
 
                 S_MEM: begin
                     if (is_load) begin
-                        mem_addr_reg <= pass_a_result;
                         mem_addr <= pass_a_result;
                         mem_read <= 1'b1;
                         state <= S_MEM2;
                     end else if (is_store) begin
-                        mem_addr_reg <= pass_a_result;
                         mem_addr <= pass_a_result;
-                        mem_wdata <= store_data;
                         mem_write <= 1'b1;
                         state <= S_WRITEBACK;
                     end else begin
@@ -646,34 +647,9 @@ module RiscV #(
                     if (WAIT_FOR_MEMORY && is_store && !mem_ready) begin
                         mem_write <= 1'b1;
                     end else begin
-                        if (reg_writes_rd) begin
-                            rf_a3 <= rd;
-                            rf_we <= 1'b1;
-                        `ifdef CORE_EXTENSION_M
-                            if (is_mext) begin
-                                rf_wd <= pass_a_reg;
-                            end else
-                        `endif
-                            if (is_shift) begin
-                                rf_wd <= shift_result;
-                            end else if (is_slt) begin
-                                rf_wd <= {31'd0, slt_result_reg};
-                            end else if (is_load) begin
-                                rf_wd <= load_data;
-                            end else if (is_lui) begin
-                                rf_wd <= imm;
-                            end else if (is_jal || is_jalr) begin
-                                rf_wd <= pc_plus4_reg;
-                            end else begin
-                                rf_wd <= pass_a_reg; // r/i-type alu, auipc
-                            end
-                        end
-
                         if (is_jalr) begin
                             PC <= {pass_a_reg[31:1], 1'b0};
-                        end else if (need_pass_c) begin
-                            PC <= pc_plus_imm_reg;
-                        end else begin
+                        end else if (!need_pass_c) begin
                             PC <= pc_plus4_reg;
                         end
 
@@ -889,7 +865,7 @@ module MulDiv (
     input [2:0] funct3,
     input [31:0] a,
     input [31:0] b,
-    output reg [31:0] result,
+    output wire [31:0] result,
     output reg done
 );
     localparam IDLE = 4'd0;
@@ -914,6 +890,8 @@ module MulDiv (
     reg carry;
     reg [63:0] work;
     reg [31:0] operand;
+
+    assign result = work[31:0];
 
     wire signed_a = funct3 == 3'b001 || funct3 == 3'b010 || funct3 == 3'b100 || funct3 == 3'b110;
     wire signed_b = funct3 == 3'b001 || funct3 == 3'b100 || funct3 == 3'b110;
@@ -947,7 +925,7 @@ module MulDiv (
                 add_b = operand[0];
             end
     
-            NEGATE: add_b = ~result[0];
+            NEGATE: add_b = ~work[0];
     
             default: begin end
         endcase
@@ -966,7 +944,7 @@ module MulDiv (
             case (state)
                 IDLE: if (start) begin
                     if (funct3[2] && b == 0) begin
-                        result <= funct3[1] ? a : 32'hffffffff;
+                        work[31:0] <= funct3[1] ? a : 32'hffffffff;
                         done <= 1'b1;
                     end else begin
                         operation <= funct3;
@@ -1070,7 +1048,7 @@ module MulDiv (
                 end
 
                 FINISH: begin
-                    result <= selected_result;
+                    work[31:0] <= selected_result;
                     if (negative_result) begin
                         carry <= !(!operation[2] && operation != 3'b000 && work[31:0] != 0);
                         bit_count <= 0;
@@ -1082,7 +1060,7 @@ module MulDiv (
                 end
 
                 NEGATE: begin
-                    result <= {sum_bit, result[31:1]};
+                    work[31:0] <= {sum_bit, work[31:1]};
                     carry <= carry_next;
                     bit_count <= bit_count + 1'b1;
                     if (bit_count == 5'd31) begin
@@ -1136,7 +1114,6 @@ module Shifter (
 );
     reg [4:0] count;
     reg busy;
-    reg signbit;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -1144,13 +1121,12 @@ module Shifter (
             done <= 0;
         end else if (start && !busy) begin
             result <= operand;
-            signbit <= operand[31];
             count <= shamt;
             busy <= (shamt != 0);
             done <= (shamt == 0);
         end else if (busy) begin
             if (right) begin
-                result <= {arith ? signbit : 1'b0, result[31:1]};
+                result <= {arith && result[31], result[31:1]};
             end else begin
                 result <= {result[30:0], 1'b0};
             end
@@ -1262,21 +1238,20 @@ module SerialMemory #(
     localparam GAP = 3'd3;
     localparam DONE = 3'd4;
     localparam INIT_DONE = 3'd4;
+    localparam STARTUP_BITS = STARTUP_CYCLES > 1 ? $clog2(STARTUP_CYCLES) : 1;
 
     reg [2:0] state;
-    reg [13:0] startup_count;
+    reg [STARTUP_BITS-1:0] startup_count;
     reg startup_done;
     reg [2:0] init_step;
     reg is_flash;
     reg bank_b;
     reg req_write;
     reg [23:0] word_offset;
-    reg [31:0] write_word;
+    reg [31:8] write_word;
     reg [3:0] remaining_mask;
-    reg [1:0] lane;
     reg [39:0] tx_shift;
-    reg [31:0] rx_shift;
-    reg [6:0] bit_count;
+    reg [5:0] bit_count;
 
     function [1:0] first_lane;
         input [3:0] mask;
@@ -1302,7 +1277,8 @@ module SerialMemory #(
     assign mosi = tx_shift[39];
     assign ready = state == DONE;
 
-    assign rdata = {rx_shift[7:0], rx_shift[15:8], rx_shift[23:16], rx_shift[31:24]};
+    assign rdata = req_write ? 32'd0 :
+        {tx_shift[7:0], tx_shift[15:8], tx_shift[23:16], tx_shift[31:24]};
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -1316,9 +1292,7 @@ module SerialMemory #(
             word_offset <= 0;
             write_word <= 0;
             remaining_mask <= 0;
-            lane <= 0;
             tx_shift <= 0;
-            rx_shift <= 0;
             bit_count <= 0;
         end else begin
             if (!startup_done) begin
@@ -1343,16 +1317,14 @@ module SerialMemory #(
                     bank_b <= address[23];
                     req_write <= write;
                     word_offset <= address[23:0];
-                    write_word <= wdata;
-                    rx_shift <= 0;
+                    write_word <= wdata[31:8];
                     bit_count <= 0;
 
                     if (write) begin
                         if (wstrb == 0) begin
                             state <= DONE;
                         end else begin
-                            lane <= first_lane(wstrb);
-                            remaining_mask <= wstrb & ~(4'b0001 << first_lane(wstrb));
+                            remaining_mask <= wstrb & ~(4'b0001 << first_lane(wstrb)) & 4'b1110;
                             tx_shift <= {8'h02, 1'b0, address[22:2], first_lane(wstrb), wdata[first_lane(wstrb)*8 +: 8]};
                             state <= SETUP;
                         end
@@ -1365,11 +1337,7 @@ module SerialMemory #(
                 SETUP: state <= SAMPLE;
                 
                 SAMPLE: begin
-                    if (!req_write && bit_count >= 32) begin
-                        rx_shift <= {rx_shift[30:0], miso};
-                    end
-
-                    tx_shift <= {tx_shift[38:0], 1'b0};
+                    tx_shift <= {tx_shift[38:0], !req_write && bit_count[5] && miso};
                     bit_count <= bit_count + 1'b1;
                     
                     if (init_step != INIT_DONE && bit_count == 7) begin
@@ -1383,9 +1351,10 @@ module SerialMemory #(
                 end
 
                 GAP: begin
-                    lane <= first_lane(remaining_mask);
                     remaining_mask <= remaining_mask & ~(4'b0001 << first_lane(remaining_mask));
-                    tx_shift <= {8'h02, 1'b0, word_offset[22:2], first_lane(remaining_mask), write_word[first_lane(remaining_mask)*8 +: 8]};
+                    tx_shift <= {8'h02, 1'b0, word_offset[22:2], first_lane(remaining_mask),
+                        remaining_mask[1] ? write_word[15:8] :
+                        remaining_mask[2] ? write_word[23:16] : write_word[31:24]};
                     bit_count <= 0;
                     state <= SETUP;
                 end
@@ -1577,6 +1546,7 @@ module UartTx (
             case (state)
                 START: begin
                     tx <= payload[0];
+                    payload <= {1'b0, payload[7:1]};
                     state <= DATA;
                 end
                 
@@ -1585,7 +1555,8 @@ module UartTx (
                     state <= STOP;
                 end else begin
                     bitpos <= bitpos + 1'b1;
-                    tx <= payload[bitpos + 1'b1];
+                    tx <= payload[0];
+                    payload <= {1'b0, payload[7:1]};
                 end
 
                 STOP: state <= IDLE;
@@ -1658,7 +1629,7 @@ module UartRx (
                     count <= count - 1'b1;
                 end else begin
                     count <= scaler;
-                    shift[bitpos] <= rx_sync;
+                    shift <= {rx_sync, shift[7:1]};
                     if (bitpos == 7) state <= STOP;
                     else bitpos <= bitpos + 1'b1;
                 end
